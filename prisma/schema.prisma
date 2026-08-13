@@ -1,0 +1,883 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum SaleType {
+  SIMPLE
+  LENGTH
+  BOX
+}
+
+enum AdjustmentKind {
+  SIMPLE
+  LENGTH_FULL
+  LENGTH_CUT
+  LENGTH_MANUAL_CUT
+  LENGTH_RECUT
+  BOX_FULL
+  BOX_LOOSE
+}
+
+enum AdjustmentSource {
+  MANUAL
+  SALE
+  RETURN
+  PURCHASE
+}
+
+enum UserRole {
+  ADMIN
+  STAFF
+}
+
+model User {
+  id           String    @id @default(cuid())
+  name         String
+  username     String    @unique
+  passwordHash String
+  passwordSalt String
+  role         UserRole  @default(STAFF)
+  pin          String?
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([role])
+}
+
+enum AdjustmentDirection {
+  OUT
+  IN
+}
+
+enum OrderStatus {
+  DRAFT
+  PRINTED
+  CONVERTED
+  CANCELLED
+}
+
+enum BillType {
+  NORMAL
+  PARTY
+}
+
+enum SaleKind {
+  SIMPLE
+  LENGTH_FULL
+  LENGTH_CUT
+  BOX_FULL
+  BOX_LOOSE
+  CUSTOM
+}
+
+enum DiscountType {
+  FLAT
+  PERCENT
+}
+
+enum PrintKind {
+  BILL
+  RECEIPT
+}
+
+enum AuditAction {
+  BILL_CREATED
+  BILL_EDITED
+  BILL_CANCELLED
+  PAYMENT_ADDED
+  PAYMENT_EDITED
+  PAYMENT_DELETED
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  CARD
+  OTHER
+}
+
+enum CustomItemStatus {
+  PENDING
+  IGNORED
+  ADDED
+}
+
+enum ExpenseCategory {
+  RENT
+  SALARY
+  ELECTRICITY
+  SUPPLIER
+  TRANSPORT
+  MISCELLANEOUS
+}
+
+enum ReturnRefundMethod {
+  CASH
+  UPI
+  CARD
+  STORE_CREDIT
+  ACCOUNT_CREDIT
+}
+
+enum CreditAccountStatus {
+  OPEN
+  CLOSED
+}
+
+enum BackupFrequency {
+  DAILY
+  WEEKLY
+  EVERY_N_TRANSACTIONS
+}
+
+enum PrintFormat {
+  THERMAL_3IN
+  THERMAL_4IN
+}
+
+model Category {
+  id        String            @id @default(cuid())
+  name      String            @unique
+  parentId  String?
+  parent    Category?         @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children  Category[]        @relation("CategoryHierarchy")
+  createdAt DateTime          @default(now())
+  products  ProductCategory[]
+
+  @@index([parentId])
+}
+
+model Product {
+  id            String   @id @default(cuid())
+  name          String
+  notes         String?
+  imageUrl      String?
+  minStock      Float    @default(0)
+  shelfLocation String?
+  isActive      Boolean  @default(true)
+  isPartyProduct Boolean @default(false)
+  saleType      SaleType
+
+  // SIMPLE
+  costPrice    Float?
+  sellingPrice Float?
+  currentStock Int?
+
+  // LENGTH
+  fullLengthValue     Float?
+  unitLabel           String?
+  fullLengthCostPrice Float?
+  fullLengthPrice     Float?
+  cutUnitCostPrice    Float?
+  cutUnitPrice        Float?
+  fullLengthCount     Int?
+
+  // BOX
+  boxSize            Int?
+  boxCostPrice       Float?
+  boxPrice           Float?
+  looseUnitCostPrice Float?
+  looseUnitPrice     Float?
+  boxCount           Int?
+  looseCount         Int?
+
+  categories  ProductCategory[]
+  cutPieces   CutPieceStock[]
+  adjustments StockAdjustment[]
+  orderItems    OrderItem[]
+  billLineItems BillLineItem[]
+  suppliers     ProductSupplier[]
+  returnLineItems ReturnLineItem[]
+  creditAccountItems CreditAccountItem[]
+  priceHistory  ProductPriceHistory[]
+  quotationLineItems QuotationLineItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([saleType])
+  @@index([isActive])
+}
+
+model ProductPriceHistory {
+  id         String   @id @default(cuid())
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  field      String
+  price      Float
+  recordedAt DateTime @default(now())
+
+  @@index([productId, field])
+}
+
+model ProductCategory {
+  productId  String
+  categoryId String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([productId, categoryId])
+}
+
+model CutPieceStock {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  length    Float
+  quantity  Int     @default(0)
+
+  @@unique([productId, length])
+}
+
+model StockAdjustment {
+  id        String           @id @default(cuid())
+  productId String
+  product   Product          @relation(fields: [productId], references: [id])
+  kind      AdjustmentKind
+  quantity  Float
+  cutLength Float?
+  // LENGTH_RECUT only — the original length of the donor cut piece this
+  // was re-cut from, so a reversal knows what to restore.
+  sourceLength Float?
+  reason    String?
+  source    AdjustmentSource    @default(MANUAL)
+  direction AdjustmentDirection @default(OUT)
+  createdAt DateTime            @default(now())
+
+  // PURCHASE (Receive Stock) only — lets a receipt double as a purchase record
+  costPrice Float?
+
+  billLineItemId String?
+  billLineItem    BillLineItem? @relation(fields: [billLineItemId], references: [id])
+
+  returnLineItemId String?
+  returnLineItem    ReturnLineItem? @relation(fields: [returnLineItemId], references: [id])
+
+  supplierId String?
+  supplier   Supplier? @relation(fields: [supplierId], references: [id])
+
+  @@index([productId])
+  @@index([createdAt])
+  @@index([supplierId])
+  @@index([billLineItemId])
+  @@index([returnLineItemId])
+}
+
+// ---------- Sequence numbering ----------
+
+/// Backing store for human-friendly sequential numbers (ORD-000N, and a
+/// single shared bill sequence formatted with AppSettings.invoicePrefix),
+/// since SQLite only supports autoincrement() on a model's own @id field.
+/// Incremented via upsert inside the same transaction as the create.
+model SequenceCounter {
+  name  String @id // "order" | "bill" | "return" | "creditAccount"
+  value Int    @default(0)
+}
+
+// ---------- Temporary Orders ----------
+
+model TemporaryOrder {
+  id            String      @id @default(cuid())
+  orderNumber   Int         @unique
+  status        OrderStatus @default(DRAFT)
+
+  customerName  String
+  customerPhone String?
+  customerNotes String?
+
+  createdBy     String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  items         OrderItem[]
+  printLogs     OrderPrintLog[]
+
+  /// Reverse side of Bill.sourceOrderId (unique FK => 1:1). Null until
+  /// the order is actually converted.
+  convertedBill Bill?
+
+  @@index([status])
+  @@index([customerName])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id             String         @id @default(cuid())
+  orderId        String
+  order          TemporaryOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sortOrder      Int            @default(0)
+
+  productId      String?
+  product        Product?       @relation(fields: [productId], references: [id])
+  customItemName String?
+
+  saleKind       SaleKind?
+  quantity       Float
+  cutLength      Float?
+  unit           String?
+  remarks        String?
+
+  createdAt      DateTime       @default(now())
+
+  @@index([orderId])
+}
+
+model OrderPrintLog {
+  id        String         @id @default(cuid())
+  orderId   String
+  order     TemporaryOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  printedBy String?
+  printedAt DateTime       @default(now())
+
+  @@index([orderId])
+}
+
+// ---------- Bills ----------
+
+model Bill {
+  id              String    @id @default(cuid())
+  billNumber      Int       @unique
+  type            BillType
+
+  customerName    String
+  customerPhone   String?
+  customerNotes   String?
+
+  partyPercentage Float?
+
+  subtotal        Float
+  discountTotal   Float
+  shopAmount      Float
+  marginAmount    Float     @default(0)
+  customerAmount  Float
+
+  // Bill-level discount applied on top of line-item totals, on the
+  // final amount — separate from and in addition to per-line discounts.
+  overallDiscountType  DiscountType?
+  overallDiscountValue Float         @default(0)
+
+  isCancelled     Boolean   @default(false)
+  cancelledAt     DateTime?
+  cancelledBy     String?
+  cancelReason    String?
+
+  sourceOrderId   String?         @unique
+  sourceOrder     TemporaryOrder? @relation(fields: [sourceOrderId], references: [id])
+
+  sourceQuotationId String?    @unique
+  sourceQuotation   Quotation? @relation(fields: [sourceQuotationId], references: [id])
+
+  createdBy       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  lineItems       BillLineItem[]
+  payments        Payment[]
+  printLogs       BillPrintLog[]
+  auditLogs       BillAuditLog[]
+  returns         ReturnTransaction[]
+  creditAccount   CreditAccount?
+
+  @@index([type])
+  @@index([isCancelled])
+  @@index([customerName])
+  @@index([createdAt])
+}
+
+model BillLineItem {
+  id             String        @id @default(cuid())
+  billId         String
+  bill           Bill          @relation(fields: [billId], references: [id], onDelete: Cascade)
+  sortOrder      Int           @default(0)
+
+  productId      String?
+  product        Product?      @relation(fields: [productId], references: [id])
+  customItemId   String?
+  customItem     CustomItem?   @relation(fields: [customItemId], references: [id])
+  itemName       String
+
+  saleKind       SaleKind
+  quantity       Float
+  cutLength      Float?
+  unitsSold      Float
+  // Set only on lines generated from a Credit Account's final bill — the
+  // date this item was actually taken, for the optional "print with
+  // purchase date" toggle. Null for every ordinary bill line.
+  takenAt        DateTime?
+
+  rate           Float
+  discountType   DiscountType?
+  discountValue  Float         @default(0)
+  baseRate       Float
+
+  isPartyProduct Boolean       @default(false)
+  partyRate      Float
+
+  shopAmount     Float
+  amount         Float
+  note           String?
+
+  createdAt      DateTime      @default(now())
+
+  stockAdjustments StockAdjustment[]
+
+  @@index([billId])
+  @@index([productId])
+}
+
+model Payment {
+  id        String    @id @default(cuid())
+  billId    String
+  bill      Bill      @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  amount    Float
+  method    PaymentMethod @default(CASH)
+  notes     String?
+  enteredBy String?
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  deletedBy String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  printLogs BillPrintLog[]
+  auditLogs BillAuditLog[]
+
+  @@index([billId])
+}
+
+model BillPrintLog {
+  id        String    @id @default(cuid())
+  billId    String
+  bill      Bill      @relation(fields: [billId], references: [id], onDelete: Cascade)
+  kind      PrintKind @default(BILL)
+  paymentId String?
+  payment   Payment?  @relation(fields: [paymentId], references: [id])
+  printedBy String?
+  printedAt DateTime  @default(now())
+
+  @@index([billId])
+}
+
+model BillAuditLog {
+  id            String      @id @default(cuid())
+  billId        String
+  bill          Bill        @relation(fields: [billId], references: [id], onDelete: Cascade)
+  paymentId     String?
+  payment       Payment?    @relation(fields: [paymentId], references: [id])
+
+  action        AuditAction
+  description   String
+  previousValue String?
+  newValue      String?
+  performedBy   String?
+
+  createdAt     DateTime    @default(now())
+
+  @@index([billId])
+}
+
+// ---------- Quotations ----------
+
+enum QuotationStatus {
+  DRAFT
+  PRINTED
+  CONVERTED
+}
+
+model Quotation {
+  id              String          @id @default(cuid())
+  quotationNumber Int             @unique
+  status          QuotationStatus @default(DRAFT)
+
+  customerName    String
+  customerPhone   String?
+  customerNotes   String?
+
+  // Always party-style pricing — unlike Bill.partyPercentage (nullable,
+  // only set for PARTY-type bills), this is never null since a quotation
+  // is always priced this way.
+  partyPercentage Float           @default(0)
+
+  subtotal        Float
+  discountTotal   Float
+  shopAmount      Float
+  marginAmount    Float           @default(0)
+  customerAmount  Float
+
+  // Bill-level discount applied on top of line-item totals, on the
+  // final amount — separate from and in addition to per-line discounts.
+  overallDiscountType  DiscountType?
+  overallDiscountValue Float         @default(0)
+
+  createdBy       String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  lineItems       QuotationLineItem[]
+  printLogs       QuotationPrintLog[]
+
+  /// Reverse side of Bill.sourceQuotationId (unique FK => 1:1). Null
+  /// until the quotation is actually converted.
+  convertedBill   Bill?
+
+  @@index([status])
+  @@index([customerName])
+  @@index([createdAt])
+}
+
+model QuotationLineItem {
+  id             String        @id @default(cuid())
+  quotationId    String
+  quotation      Quotation     @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  sortOrder      Int           @default(0)
+
+  productId      String?
+  product        Product?      @relation(fields: [productId], references: [id])
+  customItemId   String?
+  customItem     CustomItem?   @relation(fields: [customItemId], references: [id])
+  itemName       String
+
+  saleKind       SaleKind
+  quantity       Float
+  cutLength      Float?
+  unitsSold      Float
+
+  rate           Float
+  discountType   DiscountType?
+  discountValue  Float         @default(0)
+  baseRate       Float
+
+  isPartyProduct Boolean       @default(false)
+  partyRate      Float
+
+  shopAmount     Float
+  amount         Float
+  note           String?
+
+  createdAt      DateTime      @default(now())
+
+  @@index([quotationId])
+  @@index([productId])
+}
+
+model QuotationPrintLog {
+  id          String    @id @default(cuid())
+  quotationId String
+  quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  printedBy   String?
+  printedAt   DateTime  @default(now())
+
+  @@index([quotationId])
+}
+
+model CustomItem {
+  id         String            @id @default(cuid())
+  name       String            @unique
+  lastRate   Float?
+  status     CustomItemStatus  @default(PENDING)
+  resolvedAt DateTime?
+  resolvedBy String?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  billLineItems BillLineItem[]
+  quotationLineItems QuotationLineItem[]
+}
+
+// ---------- Suppliers ----------
+
+model Supplier {
+  id                 String   @id @default(cuid())
+  name               String
+  phone              String?
+  address            String?
+  gstNumber          String?
+  notes              String?
+  outstandingBalance Float    @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  products         ProductSupplier[]
+  stockAdjustments StockAdjustment[]
+  bills            SupplierBill[]
+  payments         SupplierPayment[]
+}
+
+model ProductSupplier {
+  productId  String
+  supplierId String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@id([productId, supplierId])
+}
+
+model SupplierBill {
+  id         String   @id @default(cuid())
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  amount     Float
+  reference  String?
+  date       DateTime @default(now())
+  notes      String?
+  createdBy  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([supplierId])
+  @@index([date])
+}
+
+model SupplierPayment {
+  id         String        @id @default(cuid())
+  supplierId String
+  supplier   Supplier      @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  amount     Float
+  method     PaymentMethod @default(CASH)
+  date       DateTime      @default(now())
+  notes      String?
+  enteredBy  String?
+  createdAt  DateTime      @default(now())
+
+  @@index([supplierId])
+  @@index([date])
+}
+
+// ---------- Expenses ----------
+
+model Expense {
+  id        String          @id @default(cuid())
+  date      DateTime
+  category  ExpenseCategory
+  amount    Float
+  notes     String?
+  createdBy String?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@index([date])
+  @@index([category])
+}
+
+// ---------- Audit Logs (system-wide, immutable) ----------
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  userName    String?
+  module      String
+  action      String
+  description String
+  entityType  String?
+  entityId    String?
+  detail      String?
+  createdAt   DateTime @default(now())
+
+  @@index([module])
+  @@index([action])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// ---------- Returns ----------
+
+model ReturnTransaction {
+  id           String              @id @default(cuid())
+  returnNumber Int                 @unique
+  billId       String?
+  bill         Bill?               @relation(fields: [billId], references: [id])
+  customerName String
+  refundAmount Float
+  refundMethod ReturnRefundMethod  @default(CASH)
+  reason       String?
+  createdBy    String?
+  createdAt    DateTime            @default(now())
+
+  // Set instead of billId when this return is against an open Credit
+  // Account rather than a completed bill — refundMethod is ACCOUNT_CREDIT
+  // and refundAmount reduces the account's running balance rather than
+  // being paid out in cash. Netted against CreditAccountItem quantities
+  // when the account's final bill is generated (see generate-bill route).
+  creditAccountId String?
+  creditAccount   CreditAccount? @relation(fields: [creditAccountId], references: [id])
+
+  lineItems ReturnLineItem[]
+
+  @@index([billId])
+  @@index([creditAccountId])
+  @@index([createdAt])
+}
+
+model ReturnLineItem {
+  id          String            @id @default(cuid())
+  returnId    String
+  returnTxn   ReturnTransaction @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  productId   String?
+  product     Product?          @relation(fields: [productId], references: [id])
+  itemName    String
+  saleKind    SaleKind
+  quantity    Float
+  cutLength   Float?
+  rate        Float
+  amount      Float
+
+  stockAdjustments StockAdjustment[]
+
+  @@index([returnId])
+}
+
+// ---------- Settings (singleton) ----------
+
+model AppSettings {
+  id  String @id @default("singleton")
+
+  storeName    String?
+  storeAddress String?
+  storePhone   String?
+  gstNumber    String?
+  logoUrl      String?
+  upiId        String?
+
+  adminPin          String?
+  minPasswordLength Int     @default(6)
+
+  printFormat        PrintFormat @default(THERMAL_3IN)
+  showQrOnBill       Boolean     @default(true)
+  showDiscountOnBill Boolean     @default(true)
+
+  enableCreditAccounts Boolean @default(true)
+  enablePartyBilling   Boolean @default(true)
+  timezone             String  @default("Asia/Kolkata")
+  currency             String  @default("INR")
+
+  invoicePrefix String @default("HGS-")
+
+  backupPath               String?
+  backupFrequency          BackupFrequency @default(DAILY)
+  backupEveryNTransactions Int?
+  /// HH:MM, 24-hour — when DAILY/WEEKLY backups run
+  backupTime               String?         @default("02:00")
+  lastBackupAt             DateTime?
+
+  updatedAt DateTime @updatedAt
+}
+
+// ---------- Credit Accounts ----------
+
+/// A running tab for a long-lived customer relationship (e.g. a
+/// construction site) — items are taken over time (stock reduces
+/// immediately, same as a sale, but nothing is billed yet), payments can
+/// land at any point, and a single consolidated Bill is generated once
+/// the project ends, priced at CURRENT product prices plus this
+/// account's own percentageIncrease — not the price on the day each item
+/// was taken.
+model CreditAccount {
+  id                 String              @id @default(cuid())
+  accountNumber      Int                 @unique
+  name               String
+  customerName       String?
+  customerPhone      String?
+  percentageIncrease Float               @default(0)
+  status             CreditAccountStatus @default(OPEN)
+  notes              String?
+  createdBy          String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  items    CreditAccountItem[]
+  payments CreditAccountPayment[]
+  returns  ReturnTransaction[]
+
+  finalBillId String? @unique
+  finalBill   Bill?   @relation(fields: [finalBillId], references: [id])
+
+  @@index([status])
+}
+
+/// One "items taken" event. Immutable once created (matching how
+/// BillLineItem/ReturnLineItem are never mutated elsewhere in this
+/// schema) — a mistake is corrected via the Return action, not by
+/// editing quantity here. priceAtTimeTaken is reference-only: the final
+/// bill always re-prices every line at the CURRENT product price.
+model CreditAccountItem {
+  id               String        @id @default(cuid())
+  accountId        String
+  account          CreditAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  productId        String?
+  product          Product?      @relation(fields: [productId], references: [id])
+  customItemName   String?
+  itemName         String
+  saleKind         SaleKind
+  quantity         Float
+  cutLength        Float?
+  unitsSold        Float
+  priceAtTimeTaken Float
+  // When true, priceAtTimeTaken is authoritative and balance/generate-bill
+  // stop re-pricing this item to the product's live price. False (default)
+  // preserves the original "always re-price live" behavior.
+  rateLocked       Boolean       @default(false)
+  // Custom items (no productId) have no isPartyProduct flag to gate the
+  // account's percentage increase, so it's opt-in per entry — catalog
+  // items always follow their own product's isPartyProduct instead.
+  applyMarkup      Boolean       @default(false)
+  discountType     DiscountType?
+  discountValue    Float         @default(0)
+  notes            String?
+  dateTaken        DateTime      @default(now())
+  createdBy        String?
+  createdAt        DateTime      @default(now())
+
+  @@index([accountId])
+  @@index([productId])
+}
+
+model CreditAccountPayment {
+  id        String        @id @default(cuid())
+  accountId String
+  account   CreditAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  amount    Float
+  method    PaymentMethod @default(CASH)
+  date      DateTime      @default(now())
+  notes     String?
+  enteredBy String?
+  isDeleted Boolean       @default(false)
+  createdAt DateTime      @default(now())
+
+  @@index([accountId])
+}
+
+// ---------- Clearance Stock ----------
+// Standalone damaged/clearance item tracking — deliberately has no
+// relation to Product/Bill/stock. Purely a reference list for staff.
+
+enum ClearanceStatus {
+  AVAILABLE
+  SOLD
+}
+
+model ClearanceItem {
+  id                String          @id @default(cuid())
+  itemName          String
+  description       String?
+  originalPrice     Float?
+  discountedPrice   Float
+  quantityAvailable Int?
+  photoUrl          String?
+  status            ClearanceStatus @default(AVAILABLE)
+  addedBy           String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+}

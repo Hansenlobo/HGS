@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+/* Light theme only, by design — bind Tailwind's `dark:` variant to a
+   `.dark` ancestor class that this app never applies, instead of the
+   default `prefers-color-scheme` media query. This keeps every existing
+   `dark:*` utility in the codebase inert regardless of the OS/browser
+   theme, without having to strip those classes from every component. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: #f6f5f1;
+  --foreground: #1a1a18;
+  --surface: #ffffff;
+  --border: #e4e2db;
+  --muted: #6e6c64;
+  --primary: #2f4858;
+  --primary-foreground: #ffffff;
+  --accent: #d98e2b;
+  --danger: #b3401c;
+  --danger-bg: #fbefe9;
+  --warning: #b3690f;
+  --warning-bg: #fbf3e7;
+  --success-bg: #eef3ea;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+  --color-warning: var(--warning);
+  --color-warning-bg: var(--warning-bg);
+  --color-success-bg: var(--success-bg);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-ibm-plex-mono);
+  --font-display: var(--font-space-grotesk);
+}
+
+body {
+  background: var(--background);
+  background-image: radial-gradient(circle, var(--border) 1px, transparent 1px);
+  background-size: 22px 22px;
+  color: var(--foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display), var(--font-sans), sans-serif;
+  letter-spacing: -0.01em;
+}
+
+input[type="number"] {
+  appearance: textfield;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #ffffff;
+    background-image: none;
+    color: #000000;
+  }
+  .print-sheet {
+    box-shadow: none !important;
+    border: none !important;
+  }
+}
